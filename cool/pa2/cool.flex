@@ -1,6 +1,10 @@
 /*
  *  The scanner definition for COOL.
  */
+/*
+ * For Flex 2.6.x %option noyywrap is required.
+ */
+%option noyywrap
 
 /*
  *  Stuff enclosed in %{ %} in the first section is copied verbatim to the
