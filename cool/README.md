@@ -26,3 +26,20 @@ https://web.stanford.edu/class/archive/cs/cs143/cs143.1128/).
 * Delete `Makefile` and make a symlink to this repo's version of [Makefile](./pa2/Makefile). For
   example: `rm Makefile && ln -s ~/sandbox/cool/pa2/Makefile ~/cool/build/pa2/Makefile`
 * Test: `make lexer && ./lexer test.cl`. This should work successfully
+
+
+## Install: extra steps for Assignment 3
+
+> Note: this assignment is done with `flex-old` package (available in Ubuntu). Tested flex version
+> 2.5.4. Newer version have known issues with "undefined reference to yylex".
+
+* Make build directory: `rm -rf ~/cool/build && mkdir -p ~/cool/build/pa3`
+* Run `cd ~/cool/build/pa3 && make -f ../../assignments/PA3/Makefile` to generate all necessary
+  files and create symlinks
+* Update `parser-phase.cc`, comment out line #29 like:
+```
+// int curr_lineno;               // needed for lexical analyzer
+```
+* Delete `cool.y` and make a symlink to this repo's version of [cool.y](./pa3/cool.y). For example:
+  `rm cool.y && ln -s ~/sandbox/cool/pa3/cool.y cool.y`
+* Test `make parser`. Compilation should be successful.
