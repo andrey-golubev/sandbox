@@ -143,11 +143,25 @@
 
     %type <expression> expr
     %type <expression> optional_expr
-    %type <expressions> expr_list
-    %type <expressions> optional_expr_list
+    %type <expressions> optional_expr_list_comma
+    %type <expressions> optional_expr_list_semicolon
+    /* %type <expressions> nonoptional_expr_list_semicolon */
 
-    /* Precedence declarations go here. */
+    %type <expression> let_body
 
+    %type <case_> case_stmt_branch
+    %type <cases> cases_list
+
+    /* Precedence declarations go here. Order of precedence: from lowest to highest */
+    %right ASSIGN
+    %left NOT
+    %nonassoc LE '<' '='
+    %left '+' '-'
+    %left '*' '/'
+    %left ISVOID
+    %left '~'
+    %left '@'
+    %left '.'
 
     %%
     /*
@@ -163,6 +177,7 @@
     | class_list class	/* several classes */
     { $$ = append_Classes($1,single_Classes($2));
     parse_results = $$; }
+    | error
     ;
 
     /* If no parent is specified, the class inherits from the Object class. */
@@ -176,19 +191,20 @@
     feature_list
     : feature /* feature */
     { $$ = single_Features($1); }
-    | feature_list feature /* several features */
-    { $$ = append_Features($1, single_Features($2)); }
+    | feature_list ';' feature /* several features */
+    { $$ = append_Features($1, single_Features($3)); }
     | /* empty */
     {  $$ = nil_Features(); }
     ;
 
     feature
-    : OBJECTID ':' TYPEID ';' /* attribute */
+    : OBJECTID ':' TYPEID ';'  /* attribute */
     { $$ = attr($1, $3, no_expr()); }
-    | OBJECTID ':' TYPEID ASSIGN expr ';' /* attribute with init expression */
+    | OBJECTID ':' TYPEID ASSIGN expr ';'  /* attribute with init expression */
     { $$ = attr($1, $3, $5); }
-    | OBJECTID '(' optional_formal_list ')' ':' TYPEID '{' optional_expr '}' ';' /* method */
+    | OBJECTID '(' optional_formal_list ')' ':' TYPEID '{' optional_expr '}' ';'  /* method */
     { $$ = method($1, $3, $6, $8); }
+    | error
     ;
 
     optional_formal_list
@@ -201,8 +217,8 @@
     formal_list
     : formal
     { $$ = single_Formals($1); }
-    | formal_list formal
-    { $$ = append_Formals($1, single_Formals($2)); }
+    | formal_list ',' formal
+    { $$ = append_Formals($1, single_Formals($3)); }
     ;
 
     formal
@@ -210,19 +226,31 @@
     { $$ = formal($1, $3); }
     ;
 
-    optional_expr_list
-    : expr_list
-    { $$ = $1; }
+    optional_expr_list_comma
+    : expr
+    { $$ = single_Expressions($1); }
+    | optional_expr_list_comma ',' expr
+    { $$ = append_Expressions($1, single_Expressions($3)); }
     | /* empty */
     { $$ = nil_Expressions(); }
     ;
 
-    expr_list
+    optional_expr_list_semicolon
     : expr
     { $$ = single_Expressions($1); }
-    | expr_list expr
-    { $$ = append_Expressions($1, single_Expressions($2)); }
+    | optional_expr_list_semicolon ';' expr
+    { $$ = append_Expressions($1, single_Expressions($3)); }
+    | /* empty */
+    { $$ = nil_Expressions(); }
     ;
+
+    /* nonoptional_expr_list_semicolon
+    : expr
+    { $$ = single_Expressions($1); }
+    | nonoptional_expr_list_semicolon ';' expr
+    { $$ = append_Expressions($1, single_Expressions($3)); }
+    | error
+    ; */
 
     optional_expr
     : expr
@@ -232,30 +260,39 @@
     ;
 
     expr
-    : BOOL_CONST
-    { $$ = bool_const($1); }
-    | INT_CONST
-    { $$ = int_const($1); }
-    | STR_CONST
-    { $$ = string_const($1); }
-    | OBJECTID
-    { $$ = object($1); }
-    | OBJECTID ASSIGN expr
+    : OBJECTID ASSIGN expr
     { $$ = assign($1, $3); }
-    | expr '.' OBJECTID '(' optional_expr_list ')'
+
+    | expr '.' OBJECTID '(' optional_expr_list_comma ')'
     { $$ = dispatch($1, $3, $5); }
-    | OBJECTID '(' optional_expr_list ')'  /* shorthand for self.id(expressions) */
-    { $$ = dispatch(no_expr(), $1, $3); }
-    | expr '@' TYPEID '.' OBJECTID '(' optional_expr_list ')'
+
+    | expr '@' TYPEID '.' OBJECTID '(' optional_expr_list_comma ')'
     { $$ = static_dispatch($1, $3, $5, $7); }
-    /* TODO: conditionals, loops */
-    | '{' optional_expr_list '}'  /* blocks | TODO: how to enforce ';' delimiter in-between? */
+
+    | OBJECTID '(' optional_expr_list_comma ')'  /* shorthand for self.id(expressions) */
+    { $$ = dispatch(object(idtable.add_string("self")), $1, $3); }
+
+    | IF expr THEN expr ELSE expr FI
+    { $$ = cond($2, $4, $6); }
+
+    | WHILE expr LOOP expr POOL
+    { $$ = loop($2, $4); }
+
+    | '{' optional_expr_list_semicolon '}'  /* blocks | TODO: nonoptional_expr_list_semicolon? */
     { $$ = block($2); }
-    /* TODO: let, case */
+
+    | LET let_body
+    { $$ = $2; }
+
+    | CASE expr OF cases_list ESAC
+    { $$ = typcase($2, $4); }
+
     | NEW TYPEID
     { $$ = new_($2); }
+
     | ISVOID expr
     { $$ = isvoid($2); }
+
     /* operations */
     | expr '+' expr
     { $$ = plus($1, $3); }
@@ -265,15 +302,65 @@
     { $$ = mul($1, $3); }
     | expr '/' expr
     { $$ = divide($1, $3); }
+    | '~' expr  /* TODO: this might be wrong */
+    { $$ = neg($2); }
     | expr '<' expr
     { $$ = lt($1, $3); }
+    | expr LE expr
+    { $$ = leq($1, $3); }
     | expr '=' expr
     { $$ = eq($1, $3); }
-    | expr '<' '=' expr
-    { $$ = leq($1, $4); }
     /* ---------- */
+
+    | NOT expr  /* TODO: this might be wrong */
+    { $$ = neg($2); }
+
+    | '(' expr ')'
+    { $$ = $2; }
+
+    | OBJECTID
+    { $$ = object($1); }
+
+    | INT_CONST
+    { $$ = int_const($1); }
+
+    | STR_CONST
+    { $$ = string_const($1); }
+
+    | BOOL_CONST
+    { $$ = bool_const($1); }
+
+    | error
+
     ;
 
+    let_body
+    : OBJECTID ':' TYPEID IN expr
+    { $$ = let($1, $3, no_expr(), $5); }
+
+    | OBJECTID ':' TYPEID ASSIGN expr IN expr
+    { $$ = let($1, $3, $5, $7); }
+
+    | OBJECTID ':' TYPEID ',' let_body
+    { $$ = let($1, $3, no_expr(), $5); }
+
+    | OBJECTID ':' TYPEID ASSIGN expr ',' let_body
+    { $$ = let($1, $3, $5, $7); }
+    ;
+
+    case_stmt_branch
+    : OBJECTID ':' TYPEID DARROW expr
+    { $$ = branch($1, $3, $5); }
+    ;
+
+    cases_list
+    : case_stmt_branch
+    { $$ = single_Cases($1); }
+    | cases_list case_stmt_branch
+    { $$ = append_Cases($1, single_Cases($2)); }
+    | /* empty */
+    { $$ = nil_Cases(); }
+    ;
 
     /* end of grammar */
     %%
@@ -291,4 +378,3 @@
 
       if(omerrs>50) {fprintf(stdout, "More than 50 errors\n"); exit(1);}
     }
-
