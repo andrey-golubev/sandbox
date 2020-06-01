@@ -136,15 +136,15 @@
     /* You will want to change the following line. */
     %type <feature> feature
     %type <features> feature_list
+    %type <features> optional_feature_list
 
     %type <formal> formal
     %type <formals> formal_list
     %type <formals> optional_formal_list
 
     %type <expression> expr
-    %type <expression> optional_expr
+    %type <expressions> block_expr
     %type <expressions> optional_expr_list_comma
-    %type <expressions> optional_expr_list_semicolon
     /* %type <expressions> nonoptional_expr_list_semicolon */
 
     %type <expression> let_body
@@ -178,33 +178,39 @@
     { $$ = append_Classes($1,single_Classes($2));
     parse_results = $$; }
     | error
+    {  }
     ;
 
     /* If no parent is specified, the class inherits from the Object class. */
-    class	: CLASS TYPEID '{' feature_list '}' ';'
+    class	: CLASS TYPEID '{' optional_feature_list '}' ';'
     { $$ = class_($2,idtable.add_string("Object"),$4, stringtable.add_string(curr_filename)); }
-    | CLASS TYPEID INHERITS TYPEID '{' feature_list '}' ';'
+    | CLASS TYPEID INHERITS TYPEID '{' optional_feature_list '}' ';'
     { $$ = class_($2,$4,$6,stringtable.add_string(curr_filename)); }
     ;
 
+    optional_feature_list
+    : feature_list
+    { $$ = $1; }
+    | /* empty */
+    { $$ = nil_Features(); }
+
     /* Feature list may be empty, but no empty features in list. */
     feature_list
-    : feature /* feature */
+    : feature ';' /* feature */
     { $$ = single_Features($1); }
-    | feature_list ';' feature /* several features */
-    { $$ = append_Features($1, single_Features($3)); }
-    | /* empty */
-    {  $$ = nil_Features(); }
+    | feature ';' feature_list /* several features */
+    { $$ = append_Features(single_Features($1), $3); }
     ;
 
     feature
-    : OBJECTID ':' TYPEID ';'  /* attribute */
+    : OBJECTID ':' TYPEID  /* attribute */
     { $$ = attr($1, $3, no_expr()); }
-    | OBJECTID ':' TYPEID ASSIGN expr ';'  /* attribute with init expression */
+    | OBJECTID ':' TYPEID ASSIGN expr  /* attribute with init expression */
     { $$ = attr($1, $3, $5); }
-    | OBJECTID '(' optional_formal_list ')' ':' TYPEID '{' optional_expr '}' ';'  /* method */
+    | OBJECTID '(' optional_formal_list ')' ':' TYPEID '{' expr '}'  /* method */
     { $$ = method($1, $3, $6, $8); }
     | error
+    {  }
     ;
 
     optional_formal_list
@@ -235,13 +241,13 @@
     { $$ = nil_Expressions(); }
     ;
 
-    optional_expr_list_semicolon
-    : expr
+    block_expr
+    : expr ';'
     { $$ = single_Expressions($1); }
-    | optional_expr_list_semicolon ';' expr
-    { $$ = append_Expressions($1, single_Expressions($3)); }
-    | /* empty */
-    { $$ = nil_Expressions(); }
+    | expr ';' block_expr
+    { $$ = append_Expressions(single_Expressions($1), $3); }
+    | error
+    {  }
     ;
 
     /* nonoptional_expr_list_semicolon
@@ -251,13 +257,6 @@
     { $$ = append_Expressions($1, single_Expressions($3)); }
     | error
     ; */
-
-    optional_expr
-    : expr
-    { $$ = $1; }
-    | /* empty */
-    { $$ = no_expr(); }
-    ;
 
     expr
     : OBJECTID ASSIGN expr
@@ -278,7 +277,7 @@
     | WHILE expr LOOP expr POOL
     { $$ = loop($2, $4); }
 
-    | '{' optional_expr_list_semicolon '}'  /* blocks | TODO: nonoptional_expr_list_semicolon? */
+    | '{' block_expr '}'  /* blocks | TODO: nonoptional_expr_list_semicolon? */
     { $$ = block($2); }
 
     | LET let_body
@@ -302,7 +301,7 @@
     { $$ = mul($1, $3); }
     | expr '/' expr
     { $$ = divide($1, $3); }
-    | '~' expr  /* TODO: this might be wrong */
+    | '~' expr
     { $$ = neg($2); }
     | expr '<' expr
     { $$ = lt($1, $3); }
@@ -312,8 +311,8 @@
     { $$ = eq($1, $3); }
     /* ---------- */
 
-    | NOT expr  /* TODO: this might be wrong */
-    { $$ = neg($2); }
+    | NOT expr
+    { $$ = comp($2); }
 
     | '(' expr ')'
     { $$ = $2; }
@@ -331,6 +330,7 @@
     { $$ = bool_const($1); }
 
     | error
+    {  }
 
     ;
 
@@ -354,10 +354,10 @@
     ;
 
     cases_list
-    : case_stmt_branch
+    : case_stmt_branch ';'
     { $$ = single_Cases($1); }
-    | cases_list case_stmt_branch
-    { $$ = append_Cases($1, single_Cases($2)); }
+    | case_stmt_branch ';' cases_list
+    { $$ = append_Cases(single_Cases($1), $3); }
     | /* empty */
     { $$ = nil_Cases(); }
     ;
