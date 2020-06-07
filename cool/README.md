@@ -43,3 +43,19 @@ https://web.stanford.edu/class/archive/cs/cs143/cs143.1128/).
 * Delete `cool.y` and make a symlink to this repo's version of [cool.y](./pa3/cool.y). For example:
   `rm cool.y && ln -s ~/sandbox/cool/pa3/cool.y cool.y`
 * Test `make parser`. Compilation should be successful.
+
+## Install: extra steps for Assignment 4
+
+> Note: this assignment is done with `flex-old` package (available in Ubuntu). Tested flex version
+> 2.5.4. Newer version have known issues with "undefined reference to yylex".
+
+* Make build directory: `rm -rf ~/cool/build && mkdir -p ~/cool/build/pa4`
+* Run `cd ~/cool/build/pa4 && make -f ../../assignments/PA4/Makefile` to generate all necessary
+  files and create symlinks
+* Delete `cool-tree.h` and make a symlink to this repo's [cool-tree.h](./pa4/cool-tree.h). For
+  example: `rm cool-tree.h && ln -s ~/sandbox/cool/pa4/cool-tree.h cool-tree.h`
+* Delete `semant.cc` and make a symlink to this repo's [semant.cc](./pa4/semant.cc). For example:
+  `rm semant.cc && ln -s ~/sandbox/cool/pa4/semant.cc semant.cc`
+* Delete `semant.h` and make a symlink to this repo's file [semant.h](./pa4/semant.h). For example:
+  `rm semant.h && ln -s ~/sandbox/cool/pa4/semant.h semant.h`
+* Test `make semant`. Compilation should be successful.
