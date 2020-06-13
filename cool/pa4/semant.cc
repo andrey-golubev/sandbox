@@ -8,6 +8,7 @@
 #include <array>
 #include <fstream>
 #include <iostream>
+#include <utility>
 
 extern int semant_debug;
 extern char* curr_filename;
@@ -24,6 +25,12 @@ extern char* curr_filename;
 static Symbol arg, arg2, Bool, concat, cool_abort, copy, Int, in_int, in_string, IO, length, Main,
     main_meth, No_class, No_type, Object, out_int, out_string, prim_slot, self, SELF_TYPE, Str,
     str_field, substr, type_name, val;
+
+using MTable = SymbolTable<Symbol, method_class>;
+using ATable = SymbolTable<Symbol, Symbol>;
+
+static std::map<Symbol, MTable> method_tables;  // table per class entry
+
 //
 // Initializing the predefined symbols.
 //
@@ -68,13 +75,12 @@ static std::ostream& log() {
 
 ClassTable::ClassTable(Classes classes) : semant_errors(0), error_stream(cerr) {
     log() << "----------------\n"
-          << "Checking inheritance graph\n";
+          << "Checking inheritance graph...\n\n";
 
     install_basic_classes();
 
     // iterate over classes to populate class table
-    for (int i = classes->first(); classes->more(i); i = classes->next(i)) {
-        Class_ cls = classes->nth(i);
+    for (const auto& cls : to_range(classes)) {
         const auto name = cls->get_name();
 
         const std::array<Symbol, 6> basic_classes = {
@@ -261,6 +267,9 @@ ostream& ClassTable::semant_error() {
     return error_stream;
 }
 
+// forward declaration
+void initialize_method_tables(ClassTable& classtable);
+
 /*   This is the entry point to the semantic checker.
 
      Your checker should do the following two things:
@@ -277,17 +286,77 @@ ostream& ClassTable::semant_error() {
 void program_class::semant() {
     initialize_constants();
 
+    const auto check_errors = [](const ClassTable& ct) {
+        if (ct.errors()) {
+            cerr << "Compilation halted due to static semantic errors." << endl;
+            exit(1);
+        }
+    };
+
     /* ClassTable constructor may do some semantic analysis */
-    ClassTable* classtable = new ClassTable(classes);
-    if (classtable->errors()) {
-        cerr << "Compilation halted due to static semantic errors." << endl;
-        exit(1);
-    }
+    ClassTable classtable(classes);
+    check_errors(classtable);
 
     /* some semantic analysis code may go here */
+    // at this stage, inheritance graph is expected to be correct
+    initialize_method_tables(classtable);
+    check_errors(classtable);
 
-    // TODO: remove later
+    // TODO: remove later?
     if (semant_debug) {
         exit(0);
     }
+}
+
+template<typename Table> struct TableScope {
+    Table m_table;
+    TableScope(Table& t) : m_table(t) { m_table.enterscope(); }
+    ~TableScope() { m_table.exitscope(); }
+};
+using MScope = TableScope<MTable>;
+using AScope = TableScope<ATable>;
+
+void initialize_method_tables(ClassTable& classtable) {
+    log() << "----------------\nConstructing method table...\n\n";
+
+    for (const auto& p : classtable) {
+        Symbol name;
+        Class_ cls;
+        std::tie(name, cls) = p;
+        log() << "Class: " << p.first << std::endl;
+
+        Features features = cls->get_features();
+        if (features == nil_Features()) {  // empty class is not an error?
+            continue;
+        }
+
+        MTable& table = method_tables[name];
+        table.enterscope();  // Note: create global scope that exists forever!
+
+        for (const auto& feature : to_range(features)) {
+            if (!feature->is_method()) {
+                continue;
+            }
+            const auto fname = feature->get_name();
+            log() << pad(2) << fname << std::endl;
+
+            if (table.lookup(fname) != nullptr) {
+                classtable.semant_error(cls) << "Redefined method: " << fname << std::endl;
+                continue;
+            }
+
+            table.addid(fname, dynamic_cast<method_class*>(feature));
+        }
+
+        // TODO: print out symbol table stuff
+        // log() << "----------------\n";
+
+        // for (const auto& p : method_tables) {
+        //     log() << "Class: " << p.first << std::endl;
+        //     const MTable& table = p.second;
+        // }
+
+        // log() << "----------------\n";
+    }
+    log() << "----------------\n";
 }

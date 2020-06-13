@@ -29,10 +29,15 @@ private:
 
 public:
     ClassTable(Classes);
-    int errors() { return semant_errors; }
+    int errors() const { return semant_errors; }
     ostream& semant_error();
     ostream& semant_error(Class_ c);
     ostream& semant_error(Symbol filename, tree_node* t);
+
+    auto begin() const -> decltype(table)::const_iterator { return table.begin(); }
+    auto end() const -> decltype(table)::const_iterator { return table.end(); }
+
+    const Class_ at(Symbol name) const { return table.at(name); }
 };
 
 #endif

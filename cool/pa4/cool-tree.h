@@ -11,6 +11,9 @@
 #include "cool-tree.handcode.h"
 #include "tree.h"
 
+#include <iterator>
+#include <type_traits>
+
 // define the class for phylum
 // define simple phylum - Program
 typedef class Program_class* Program;
@@ -35,6 +38,7 @@ public:
 
     virtual Symbol get_name() = 0;
     virtual Symbol get_parent() = 0;
+    virtual Features get_features() = 0;
 
 #ifdef Class__EXTRAS
     Class__EXTRAS
@@ -48,6 +52,9 @@ class Feature_class : public tree_node {
 public:
     tree_node* copy() { return copy_Feature(); }
     virtual Feature copy_Feature() = 0;
+
+    virtual Symbol get_name() = 0;
+    virtual bool is_method() { return false; }
 
 #ifdef Feature_EXTRAS
     Feature_EXTRAS
@@ -153,6 +160,7 @@ public:
 
     Symbol get_name() override { return name; }
     Symbol get_parent() override { return parent; }
+    Features get_features() override { return features; }
 
 #ifdef Class__SHARED_EXTRAS
     Class__SHARED_EXTRAS
@@ -180,6 +188,9 @@ public:
     Feature copy_Feature();
     void dump(ostream& stream, int n);
 
+    Symbol get_name() override { return name; }
+    bool is_method() override { return true; }
+
 #ifdef Feature_SHARED_EXTRAS
     Feature_SHARED_EXTRAS
 #endif
@@ -203,6 +214,8 @@ public:
     }
     Feature copy_Feature();
     void dump(ostream& stream, int n);
+
+    Symbol get_name() override { return name; }
 
 #ifdef Feature_SHARED_EXTRAS
     Feature_SHARED_EXTRAS
@@ -755,6 +768,41 @@ public:
         object_EXTRAS
 #endif
 };
+
+template<typename List, typename = std::enable_if_t<std::is_pointer<List>::value>>
+struct list_node_range {
+    list_node_range(List l) : list(l) {}
+
+    struct iterator {
+        iterator() = default;
+        explicit iterator(int v, List l) : i(v), list(l) {}
+        iterator& operator++() {
+            i = list->next(i);
+            return *this;
+        }
+        iterator operator++(int) {
+            iterator ret = *(this);
+            ++(*this);
+            return ret;
+        }
+        bool operator==(iterator other) { return i == other.i && list == other.list; }
+        bool operator!=(iterator other) { return !(*this == other); }
+
+        auto operator*() -> decltype(std::declval<List>()->nth(0)) { return list->nth(i); }
+
+    private:
+        int i = 0;
+        const List list = nullptr;
+    };
+
+    iterator begin() const { return iterator(list->first(), list); }
+    iterator end() const { return iterator(list->len(), list); }
+
+private:
+    const List list = nullptr;
+};
+
+template<typename List> list_node_range<List> to_range(List l) { return list_node_range<List>(l); }
 
 // define the prototypes of the interface
 Classes nil_Classes();
