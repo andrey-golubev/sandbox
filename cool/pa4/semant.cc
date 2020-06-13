@@ -1,13 +1,16 @@
-
-
-#include <stdlib.h>
-#include <stdio.h>
-#include <stdarg.h>
 #include "semant.h"
 #include "utilities.h"
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <algorithm>
+#include <array>
+#include <fstream>
+#include <iostream>
 
 extern int semant_debug;
-extern char *curr_filename;
+extern char* curr_filename;
 
 //////////////////////////////////////////////////////////////////////
 //
@@ -18,38 +21,13 @@ extern char *curr_filename;
 // as fixed names used by the runtime system.
 //
 //////////////////////////////////////////////////////////////////////
-static Symbol
-    arg,
-    arg2,
-    Bool,
-    concat,
-    cool_abort,
-    copy,
-    Int,
-    in_int,
-    in_string,
-    IO,
-    length,
-    Main,
-    main_meth,
-    No_class,
-    No_type,
-    Object,
-    out_int,
-    out_string,
-    prim_slot,
-    self,
-    SELF_TYPE,
-    Str,
-    str_field,
-    substr,
-    type_name,
-    val;
+static Symbol arg, arg2, Bool, concat, cool_abort, copy, Int, in_int, in_string, IO, length, Main,
+    main_meth, No_class, No_type, Object, out_int, out_string, prim_slot, self, SELF_TYPE, Str,
+    str_field, substr, type_name, val;
 //
 // Initializing the predefined symbols.
 //
-static void initialize_constants(void)
-{
+static void initialize_constants(void) {
     arg = idtable.add_string("arg");
     arg2 = idtable.add_string("arg2");
     Bool = idtable.add_string("Bool");
@@ -80,14 +58,94 @@ static void initialize_constants(void)
     val = idtable.add_string("_val");
 }
 
-ClassTable::ClassTable(Classes classes) : semant_errors(0), error_stream(cerr)
-{
-
-    /* Fill this in */
+static std::ostream& log() {
+    if (!semant_debug) {
+        static std::fstream devnull("/dev/null");
+        return devnull;
+    }
+    return std::cout;
 }
 
-void ClassTable::install_basic_classes()
-{
+ClassTable::ClassTable(Classes classes) : semant_errors(0), error_stream(cerr) {
+    log() << "----------------\n"
+          << "Checking inheritance graph\n";
+
+    install_basic_classes();
+
+    // iterate over classes to populate class table
+    for (int i = classes->first(); classes->more(i); i = classes->next(i)) {
+        Class_ cls = classes->nth(i);
+        const auto name = cls->get_name();
+
+        const std::array<Symbol, 6> basic_classes = {
+            SELF_TYPE, Object, IO, Int, Bool, Str,
+        };
+        const auto it = std::find(basic_classes.begin(), basic_classes.end(), name);
+        if (it != basic_classes.end()) {
+            semant_error(cls) << "Basic class is redefined: " << *it << std::endl;
+        }
+
+        if (table.end() != table.find(name)) {
+            semant_error(cls) << "this class is redefined" << std::endl;
+            return;  // TODO: how to tell recoverable error from non-recoverable?
+        }
+
+        table.insert({name, cls});
+    }
+
+    // ensure there's Main class
+    if (table.end() == table.find(Main)) {
+        semant_error() << "Main class is not defined" << std::endl;
+    }
+
+    // check inheritance (for cycles and other errors)
+    for (int i = classes->first(); classes->more(i); i = classes->next(i)) {
+        Class_ curr_cls = classes->nth(i);
+        Symbol parent = curr_cls->get_parent();
+
+        log() << curr_cls->get_name() << " ";
+
+        while (parent != Object) {  // Object is the root base class of everything
+            log() << " <- " << parent;
+
+            if (parent == classes->nth(i)->get_name()) {
+                semant_error(classes->nth(i))
+                    << "Cycle dependency found in inheritance" << std::endl;
+                break;
+            }
+
+            if (table.end() == table.find(parent)) {
+                semant_error(curr_cls) << "Cannot find parent: " << parent << std::endl;
+                break;
+            }
+
+            const std::array<Symbol, 4> basic_classes = {
+                SELF_TYPE,
+                Int,
+                Bool,
+                Str,
+            };
+            const auto it = std::find(basic_classes.begin(), basic_classes.end(), parent);
+            if (it != basic_classes.end()) {
+                semant_error(curr_cls) << "Inherits basic class: " << *it << std::endl;
+                break;
+            }
+
+            curr_cls = table.at(parent);
+            parent = curr_cls->get_parent();
+        }
+
+        if (parent == Object) {
+            log() << " <- " << parent;
+        }
+
+        log() << "\n";
+    }
+
+    log() << "----------------" << std::endl;
+}
+
+void ClassTable::install_basic_classes() {
 
     // The tree package uses these globals to annotate the classes built below.
     // curr_lineno  = 0;
@@ -111,15 +169,13 @@ void ClassTable::install_basic_classes()
     // There is no need for method bodies in the basic classes---these
     // are already built in to the runtime system.
 
-    Class_ Object_class =
-        class_(Object,
-               No_class,
-               append_Features(
-                   append_Features(
-                       single_Features(method(cool_abort, nil_Formals(), Object, no_expr())),
-                       single_Features(method(type_name, nil_Formals(), Str, no_expr()))),
-                   single_Features(method(copy, nil_Formals(), SELF_TYPE, no_expr()))),
-               filename);
+    Class_ Object_class = class_(
+        Object, No_class,
+        append_Features(
+            append_Features(single_Features(method(cool_abort, nil_Formals(), Object, no_expr())),
+                            single_Features(method(type_name, nil_Formals(), Str, no_expr()))),
+            single_Features(method(copy, nil_Formals(), SELF_TYPE, no_expr()))),
+        filename);
 
     //
     // The IO class inherits from Object. Its methods are
@@ -128,29 +184,24 @@ void ClassTable::install_basic_classes()
     //        in_string() : Str                 reads a string from the input
     //        in_int() : Int                      "   an int     "  "     "
     //
-    Class_ IO_class =
-        class_(IO,
-               Object,
-               append_Features(
-                   append_Features(
-                       append_Features(
-                           single_Features(method(out_string, single_Formals(formal(arg, Str)),
-                                                  SELF_TYPE, no_expr())),
-                           single_Features(method(out_int, single_Formals(formal(arg, Int)),
-                                                  SELF_TYPE, no_expr()))),
-                       single_Features(method(in_string, nil_Formals(), Str, no_expr()))),
-                   single_Features(method(in_int, nil_Formals(), Int, no_expr()))),
-               filename);
+    Class_ IO_class = class_(
+        IO, Object,
+        append_Features(
+            append_Features(
+                append_Features(single_Features(method(out_string, single_Formals(formal(arg, Str)),
+                                                       SELF_TYPE, no_expr())),
+                                single_Features(method(out_int, single_Formals(formal(arg, Int)),
+                                                       SELF_TYPE, no_expr()))),
+                single_Features(method(in_string, nil_Formals(), Str, no_expr()))),
+            single_Features(method(in_int, nil_Formals(), Int, no_expr()))),
+        filename);
 
     //
     // The Int class has no methods and only a single attribute, the
     // "val" for the integer.
     //
     Class_ Int_class =
-        class_(Int,
-               Object,
-               single_Features(attr(val, prim_slot, no_expr())),
-               filename);
+        class_(Int, Object, single_Features(attr(val, prim_slot, no_expr())), filename);
 
     //
     // Bool also has only the "val" slot.
@@ -166,26 +217,26 @@ void ClassTable::install_basic_classes()
     //       concat(arg: Str) : Str               performs string concatenation
     //       substr(arg: Int, arg2: Int): Str     substring selection
     //
-    Class_ Str_class =
-        class_(Str,
-               Object,
-               append_Features(
-                   append_Features(
-                       append_Features(
-                           append_Features(
-                               single_Features(attr(val, Int, no_expr())),
-                               single_Features(attr(str_field, prim_slot, no_expr()))),
-                           single_Features(method(length, nil_Formals(), Int, no_expr()))),
-                       single_Features(method(concat,
-                                              single_Formals(formal(arg, Str)),
-                                              Str,
-                                              no_expr()))),
-                   single_Features(method(substr,
-                                          append_Formals(single_Formals(formal(arg, Int)),
-                                                         single_Formals(formal(arg2, Int))),
-                                          Str,
-                                          no_expr()))),
-               filename);
+    Class_ Str_class = class_(
+        Str, Object,
+        append_Features(
+            append_Features(
+                append_Features(
+                    append_Features(single_Features(attr(val, Int, no_expr())),
+                                    single_Features(attr(str_field, prim_slot, no_expr()))),
+                    single_Features(method(length, nil_Formals(), Int, no_expr()))),
+                single_Features(method(concat, single_Formals(formal(arg, Str)), Str, no_expr()))),
+            single_Features(method(
+                substr,
+                append_Formals(single_Formals(formal(arg, Int)), single_Formals(formal(arg2, Int))),
+                Str, no_expr()))),
+        filename);
+
+    table.insert({Object, Object_class});
+    table.insert({IO, IO_class});
+    table.insert({Int, Int_class});
+    table.insert({Bool, Bool_class});
+    table.insert({Str, Str_class});
 }
 
 ////////////////////////////////////////////////////////////////////
@@ -203,19 +254,14 @@ void ClassTable::install_basic_classes()
 //
 ///////////////////////////////////////////////////////////////////
 
-ostream &ClassTable::semant_error(Class_ c)
-{
-    return semant_error(c->get_filename(), c);
-}
+ostream& ClassTable::semant_error(Class_ c) { return semant_error(c->get_filename(), c); }
 
-ostream &ClassTable::semant_error(Symbol filename, tree_node *t)
-{
+ostream& ClassTable::semant_error(Symbol filename, tree_node* t) {
     error_stream << filename << ":" << t->get_line_number() << ": ";
     return semant_error();
 }
 
-ostream &ClassTable::semant_error()
-{
+ostream& ClassTable::semant_error() {
     semant_errors++;
     return error_stream;
 }
@@ -233,18 +279,20 @@ ostream &ClassTable::semant_error()
      errors. Part 2) can be done in a second stage, when you want
      to build mycoolc.
  */
-void program_class::semant()
-{
+void program_class::semant() {
     initialize_constants();
 
     /* ClassTable constructor may do some semantic analysis */
-    ClassTable *classtable = new ClassTable(classes);
+    ClassTable* classtable = new ClassTable(classes);
+    if (classtable->errors()) {
+        cerr << "Compilation halted due to static semantic errors." << endl;
+        exit(1);
+    }
 
     /* some semantic analysis code may go here */
 
-    if (classtable->errors())
-    {
-        cerr << "Compilation halted due to static semantic errors." << endl;
-        exit(1);
+    // TODO: remove later
+    if (semant_debug) {
+        exit(0);
     }
 }
