@@ -119,12 +119,7 @@ ClassTable::ClassTable(Classes classes) : semant_errors(0), error_stream(cerr) {
                 break;
             }
 
-            const std::array<Symbol, 4> basic_classes = {
-                SELF_TYPE,
-                Int,
-                Bool,
-                Str,
-            };
+            const std::array<Symbol, 4> basic_classes = {SELF_TYPE, Int, Bool, Str};
             const auto it = std::find(basic_classes.begin(), basic_classes.end(), parent);
             if (it != basic_classes.end()) {
                 semant_error(curr_cls) << "Inherits basic class: " << *it << std::endl;
