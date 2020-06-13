@@ -27,9 +27,10 @@ static Symbol arg, arg2, Bool, concat, cool_abort, copy, Int, in_int, in_string,
     str_field, substr, type_name, val;
 
 using MTable = SymbolTable<Symbol, method_class>;
-using ATable = SymbolTable<Symbol, Symbol>;
+using ATable = SymbolTable<Symbol, attr_class>;
 
 static std::map<Symbol, MTable> method_tables;  // table per class entry
+static std::map<Symbol, ATable> attrib_tables;  // table per class entry
 
 //
 // Initializing the predefined symbols.
@@ -105,8 +106,8 @@ ClassTable::ClassTable(Classes classes) : semant_errors(0), error_stream(cerr) {
     }
 
     // check inheritance (for cycles and other errors)
-    for (int i = classes->first(); classes->more(i); i = classes->next(i)) {
-        Class_ curr_cls = classes->nth(i);
+    for (Class_ curr_cls : to_range(classes)) {
+        Class_ this_class = curr_cls;  // copy
         Symbol parent = curr_cls->get_parent();
 
         log() << curr_cls->get_name() << " ";
@@ -114,9 +115,8 @@ ClassTable::ClassTable(Classes classes) : semant_errors(0), error_stream(cerr) {
         while (parent != Object) {  // Object is the root base class of everything
             log() << " <- " << parent;
 
-            if (parent == classes->nth(i)->get_name()) {
-                semant_error(classes->nth(i))
-                    << "Cycle dependency found in inheritance" << std::endl;
+            if (parent == this_class->get_name()) {
+                semant_error(this_class) << "Cycle dependency found in inheritance" << std::endl;
                 break;
             }
 
@@ -268,7 +268,24 @@ ostream& ClassTable::semant_error() {
 }
 
 // forward declaration
-void initialize_method_tables(ClassTable& classtable);
+template<typename Tables, typename Filter, typename Cast>
+void initialize_tables(ClassTable& classtable, Tables& tables, Filter filter, Cast cast);
+
+void initialize_method_tables(ClassTable& classtable) {
+    log() << "----------------\nConstructing method tables...\n\n";
+    initialize_tables(
+        classtable, method_tables, [](Feature f) { return f->is_method(); },
+        [](Feature f) -> method_class* { return dynamic_cast<method_class*>(f); });
+    log() << "----------------\n";
+}
+
+void initialize_attrib_tables(ClassTable& classtable) {
+    log() << "----------------\nConstructing attribute tables...\n\n";
+    initialize_tables(
+        classtable, attrib_tables, [](Feature f) { return !f->is_method(); },
+        [](Feature f) -> attr_class* { return dynamic_cast<attr_class*>(f); });
+    log() << "----------------\n";
+}
 
 /*   This is the entry point to the semantic checker.
 
@@ -293,13 +310,15 @@ void program_class::semant() {
         }
     };
 
-    /* ClassTable constructor may do some semantic analysis */
     ClassTable classtable(classes);
     check_errors(classtable);
 
-    /* some semantic analysis code may go here */
     // at this stage, inheritance graph is expected to be correct
+
     initialize_method_tables(classtable);
+    check_errors(classtable);
+
+    initialize_attrib_tables(classtable);
     check_errors(classtable);
 
     // TODO: remove later?
@@ -316,9 +335,8 @@ template<typename Table> struct TableScope {
 using MScope = TableScope<MTable>;
 using AScope = TableScope<ATable>;
 
-void initialize_method_tables(ClassTable& classtable) {
-    log() << "----------------\nConstructing method table...\n\n";
-
+template<typename Tables, typename Filter, typename Cast>
+void initialize_tables(ClassTable& classtable, Tables& tables, Filter filter, Cast cast) {
     for (const auto& p : classtable) {
         Symbol name;
         Class_ cls;
@@ -330,33 +348,23 @@ void initialize_method_tables(ClassTable& classtable) {
             continue;
         }
 
-        MTable& table = method_tables[name];
+        auto& table = tables[name];
         table.enterscope();  // Note: create global scope that exists forever!
 
         for (const auto& feature : to_range(features)) {
-            if (!feature->is_method()) {
+            if (!filter(feature)) {
                 continue;
             }
             const auto fname = feature->get_name();
             log() << pad(2) << fname << std::endl;
 
+            // this is unified for any feature - redefinition is considered an error
             if (table.lookup(fname) != nullptr) {
-                classtable.semant_error(cls) << "Redefined method: " << fname << std::endl;
+                classtable.semant_error(cls) << "Redefined: " << fname << std::endl;
                 continue;
             }
 
-            table.addid(fname, dynamic_cast<method_class*>(feature));
+            table.addid(fname, cast(feature));
         }
-
-        // TODO: print out symbol table stuff
-        // log() << "----------------\n";
-
-        // for (const auto& p : method_tables) {
-        //     log() << "Class: " << p.first << std::endl;
-        //     const MTable& table = p.second;
-        // }
-
-        // log() << "----------------\n";
     }
-    log() << "----------------\n";
 }
