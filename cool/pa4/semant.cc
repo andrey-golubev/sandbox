@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include <utility>
+#include <vector>
 
 extern int semant_debug;
 extern char* curr_filename;
@@ -27,10 +28,17 @@ static Symbol arg, arg2, Bool, concat, cool_abort, copy, Int, in_int, in_string,
     str_field, substr, type_name, val;
 
 using MTable = SymbolTable<Symbol, method_class>;
-using ATable = SymbolTable<Symbol, attr_class>;
+using ATable = SymbolTable<Symbol, Entry>;  // Internally, Entry* is held a.k.a. Symbol
 
 static std::map<Symbol, MTable> method_tables;  // table per class entry
 static std::map<Symbol, ATable> attrib_tables;  // table per class entry
+static std::map<Symbol, std::vector<Symbol>>
+    inheritance_graph;  // inheritance chain per class entry
+
+static ATable* O = nullptr;
+static MTable* M = nullptr;
+static ClassTable* C = nullptr;
+static Class_* curr_Class = nullptr;
 
 //
 // Initializing the predefined symbols.
@@ -66,12 +74,12 @@ static void initialize_constants(void) {
     val = idtable.add_string("_val");
 }
 
-static std::ostream& log() {
+static std::ostream& log(int n = 0) {
     if (!semant_debug) {
         static std::fstream devnull("/dev/null");
         return devnull;
     }
-    return std::cout;
+    return std::cout << pad(n);
 }
 
 ClassTable::ClassTable(Classes classes) : semant_errors(0), error_stream(cerr) {
@@ -105,10 +113,13 @@ ClassTable::ClassTable(Classes classes) : semant_errors(0), error_stream(cerr) {
         semant_error() << "Main class is not defined" << std::endl;
     }
 
-    // check inheritance (for cycles and other errors)
+    // check inheritance (for cycles and other errors) + build inheritance graph
     for (Class_ curr_cls : to_range(classes)) {
         Class_ this_class = curr_cls;  // copy
         Symbol parent = curr_cls->get_parent();
+
+        auto& curr_chain = inheritance_graph[curr_cls->get_name()];
+        curr_chain.push_back(curr_cls->get_name());  // push back itself first
 
         log() << curr_cls->get_name() << " ";
 
@@ -132,12 +143,15 @@ ClassTable::ClassTable(Classes classes) : semant_errors(0), error_stream(cerr) {
                 break;
             }
 
+            curr_chain.push_back(parent);  // push parent
+
             curr_cls = table.at(parent);
             parent = curr_cls->get_parent();
         }
 
         if (parent == Object) {
             log() << " <- " << parent;
+            curr_chain.push_back(parent);
         }
 
         log() << "\n";
@@ -238,6 +252,12 @@ void ClassTable::install_basic_classes() {
     table.insert({Int, Int_class});
     table.insert({Bool, Bool_class});
     table.insert({Str, Str_class});
+
+    inheritance_graph.insert({Object, {Object}});
+    inheritance_graph.insert({IO, {IO, Object}});
+    inheritance_graph.insert({Int, {Int, Object}});
+    inheritance_graph.insert({Bool, {Bool, Object}});
+    inheritance_graph.insert({Str, {Str, Object}});
 }
 
 ////////////////////////////////////////////////////////////////////
@@ -283,9 +303,11 @@ void initialize_attrib_tables(ClassTable& classtable) {
     log() << "----------------\nConstructing attribute tables...\n\n";
     initialize_tables(
         classtable, attrib_tables, [](Feature f) { return !f->is_method(); },
-        [](Feature f) -> attr_class* { return dynamic_cast<attr_class*>(f); });
+        [](Feature f) -> Symbol { return dynamic_cast<attr_class*>(f)->infer_type(); });
     log() << "----------------\n";
 }
+
+void check_types(ClassTable& classtable);
 
 /*   This is the entry point to the semantic checker.
 
@@ -312,13 +334,28 @@ void program_class::semant() {
 
     ClassTable classtable(classes);
     check_errors(classtable);
+    C = &classtable;  // TODO: do we even use it?
 
     // at this stage, inheritance graph is expected to be correct
 
+    // method initialization:
     initialize_method_tables(classtable);
+    {
+        // special check
+        auto main_methods = method_tables.at(Main);
+        if (main_methods.lookup(main_meth) == nullptr) {
+            classtable.semant_error(classtable.at(Main))
+                << "main() method is not defined" << std::endl;
+        }
+    }
     check_errors(classtable);
 
+    // attribute initialization:
     initialize_attrib_tables(classtable);
+    check_errors(classtable);
+
+    // type checking:
+    check_types(classtable);
     check_errors(classtable);
 
     // TODO: remove later?
@@ -328,9 +365,15 @@ void program_class::semant() {
 }
 
 template<typename Table> struct TableScope {
-    Table m_table;
-    TableScope(Table& t) : m_table(t) { m_table.enterscope(); }
-    ~TableScope() { m_table.exitscope(); }
+    Table tbl;
+    TableScope(Table* t) {
+        if (t == nullptr) {
+            throw std::runtime_error("Internal error: passed table is nullptr");
+        }
+        tbl = *t;
+    }
+    TableScope(Table& t) : tbl(t) { tbl.enterscope(); }
+    ~TableScope() { tbl.exitscope(); }
 };
 using MScope = TableScope<MTable>;
 using AScope = TableScope<ATable>;
@@ -356,7 +399,7 @@ void initialize_tables(ClassTable& classtable, Tables& tables, Filter filter, Ca
                 continue;
             }
             const auto fname = feature->get_name();
-            log() << pad(2) << fname << std::endl;
+            log(2) << fname << std::endl;
 
             // this is unified for any feature - redefinition is considered an error
             if (table.lookup(fname) != nullptr) {
@@ -368,3 +411,178 @@ void initialize_tables(ClassTable& classtable, Tables& tables, Filter filter, Ca
         }
     }
 }
+
+void check_types(ClassTable& classtable) {
+    log() << "----------------\nChecking attributes...\n\n";
+    for (const auto& p : classtable) {
+        Symbol name;
+        Class_ cls;
+        std::tie(name, cls) = p;
+
+        O = &attrib_tables.at(name);
+        M = &method_tables.at(name);
+        curr_Class = &cls;
+
+        Features features = cls->get_features();
+        if (features == nil_Features()) {  // empty class is not an error?
+            continue;
+        }
+
+        for (const auto& feature : to_range(features)) {
+            if (!feature->check_type()) {
+                classtable.semant_error(feature->get_name(), feature)
+                    << "static type check failed" << std::endl;
+            }
+        }
+    }
+    log() << "----------------\n";
+}
+
+std::ostream& this_class_error() { return C->semant_error(*curr_Class); }
+
+bool method_class::check_type() const { return true; }
+bool attr_class::check_type() const { return true; }
+
+// constant expressions:
+Symbol int_const_class::infer_type() const { return Int; }
+Symbol bool_const_class::infer_type() const { return Bool; }
+Symbol string_const_class::infer_type() const { return Str; }
+
+// rest of expressions:
+Symbol branch_class::infer_type() const { return No_type; }
+
+Symbol assign_class::infer_type() const {
+    Symbol type = O->lookup(name);
+    Symbol expr_type = expr->infer_type();
+
+    const auto& chain = inheritance_graph.at(expr_type);
+    if (std::find(chain.begin(), chain.end(), type) == chain.end()) {
+        this_class_error() << "[ASSIGN] Expr type is not subclass of Id type" << std::endl;
+        return No_type;
+    }
+
+    return expr_type;
+}
+
+Symbol static_dispatch_class::infer_type() const { return No_type; }
+
+Symbol dispatch_class::infer_type() const { return No_type; }
+
+Symbol cond_class::infer_type() const { return No_type; }
+
+Symbol loop_class::infer_type() const {
+    const auto pred_type = pred->infer_type();
+    (void)body->infer_type();  // TODO: is this good enough?
+    if (pred_type != Bool) {
+        this_class_error() << "[LOOP] predicate is not of type Bool" << std::endl;
+        return No_type;
+    }
+    return Object;
+}
+
+Symbol typcase_class::infer_type() const { return No_type; }
+
+Symbol block_class::infer_type() const {
+    if (!body || body->len() == 0) {
+        this_class_error() << "[SEQUENCE] Block Expr is empty"
+                           << std::endl;  // TODO: is this an error?
+        return No_type;
+    }
+    Symbol type = No_type;
+    for (const auto& expr : to_range(body)) {
+        type = expr->infer_type();
+    }
+    return type;
+}
+
+Symbol let_class::infer_type() const { return No_type; }
+
+Symbol plus_class::infer_type() const {
+    std::array<Symbol, 2> types{e1->infer_type(), e2->infer_type()};
+    if (!std::all_of(types.begin(), types.end(), [](Symbol t) { return t == Int; })) {
+        this_class_error() << "[PLUS] not all operands are of type Int" << std::endl;
+        return No_type;
+    }
+    return Int;
+}
+
+Symbol sub_class::infer_type() const {
+    std::array<Symbol, 2> types{e1->infer_type(), e2->infer_type()};
+    if (!std::all_of(types.begin(), types.end(), [](Symbol t) { return t == Int; })) {
+        this_class_error() << "[SUB] not all operands are of type Int" << std::endl;
+        return No_type;
+    }
+    return Int;
+}
+
+Symbol mul_class::infer_type() const {
+    std::array<Symbol, 2> types{e1->infer_type(), e2->infer_type()};
+    if (!std::all_of(types.begin(), types.end(), [](Symbol t) { return t == Int; })) {
+        this_class_error() << "[MUL] not all operands are of type Int" << std::endl;
+        return No_type;
+    }
+    return Int;
+}
+
+Symbol divide_class::infer_type() const {
+    std::array<Symbol, 2> types{e1->infer_type(), e2->infer_type()};
+    if (!std::all_of(types.begin(), types.end(), [](Symbol t) { return t == Int; })) {
+        this_class_error() << "[DIVIDE] not all operands are of type Int" << std::endl;
+        return No_type;
+    }
+    return Int;
+}
+
+Symbol neg_class::infer_type() const {
+    const auto type = e1->infer_type();
+    if (type != Int) {
+        this_class_error() << "[NEG] Expr is not of type Int" << std::endl;
+        return No_type;
+    }
+    return Int;
+}
+
+Symbol lt_class::infer_type() const {
+    std::array<Symbol, 2> types{e1->infer_type(), e2->infer_type()};
+    if (!std::all_of(types.begin(), types.end(), [](Symbol t) { return t == Int; })) {
+        this_class_error() << "[COMPARISON: <] not all operands are of type Int" << std::endl;
+        return No_type;
+    }
+    return Bool;
+}
+
+Symbol eq_class::infer_type() const { return No_type; }
+
+Symbol leq_class::infer_type() const {
+    std::array<Symbol, 2> types{e1->infer_type(), e2->infer_type()};
+    if (!std::all_of(types.begin(), types.end(), [](Symbol t) { return t == Int; })) {
+        this_class_error() << "[COMPARISON: <] not all operands are of type Int" << std::endl;
+        return No_type;
+    }
+    return Bool;
+}
+
+Symbol comp_class::infer_type() const {
+    const auto type = e1->infer_type();
+    if (type != Bool) {
+        this_class_error() << "[NOT] Expr type is not Bool" << std::endl;
+        return No_type;
+    }
+    return Bool;
+}
+
+Symbol new__class::infer_type() const {
+    if (type_name == SELF_TYPE) {
+        return (*curr_Class)->get_name();
+    }
+    return type_name;
+}
+
+Symbol isvoid_class::infer_type() const {
+    (void)e1->infer_type();  // TODO: is this good enough?
+    return Bool;
+}
+
+Symbol no_expr_class::infer_type() const { return No_type; }
+
+Symbol object_class::infer_type() const { return O->lookup(name); }

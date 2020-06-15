@@ -55,6 +55,8 @@ public:
 
     virtual Symbol get_name() = 0;
     virtual bool is_method() { return false; }
+    virtual bool check_type() const = 0;
+    virtual Symbol infer_type() const = 0;
 
 #ifdef Feature_EXTRAS
     Feature_EXTRAS
@@ -82,6 +84,8 @@ public:
     tree_node* copy() { return copy_Expression(); }
     virtual Expression copy_Expression() = 0;
 
+    virtual Symbol infer_type() const = 0;
+
 #ifdef Expression_EXTRAS
     Expression_EXTRAS
 #endif
@@ -94,6 +98,8 @@ class Case_class : public tree_node {
 public:
     tree_node* copy() { return copy_Case(); }
     virtual Case copy_Case() = 0;
+
+    virtual Symbol infer_type() const = 0;
 
 #ifdef Case_EXTRAS
     Case_EXTRAS
@@ -190,6 +196,8 @@ public:
 
     Symbol get_name() override { return name; }
     bool is_method() override { return true; }
+    bool check_type() const override;
+    Symbol infer_type() const override { return return_type; }
 
 #ifdef Feature_SHARED_EXTRAS
     Feature_SHARED_EXTRAS
@@ -216,6 +224,8 @@ public:
     void dump(ostream& stream, int n);
 
     Symbol get_name() override { return name; }
+    bool check_type() const override;
+    Symbol infer_type() const override { return type_decl; }
 
 #ifdef Feature_SHARED_EXTRAS
     Feature_SHARED_EXTRAS
@@ -238,6 +248,8 @@ public:
     }
     Formal copy_Formal();
     void dump(ostream& stream, int n);
+
+    Symbol infer_type() const { return type_decl; }
 
 #ifdef Formal_SHARED_EXTRAS
     Formal_SHARED_EXTRAS
@@ -263,6 +275,8 @@ public:
     Case copy_Case();
     void dump(ostream& stream, int n);
 
+    Symbol infer_type() const override;
+
 #ifdef Case_SHARED_EXTRAS
     Case_SHARED_EXTRAS
 #endif
@@ -284,6 +298,8 @@ public:
     }
     Expression copy_Expression();
     void dump(ostream& stream, int n);
+
+    Symbol infer_type() const override;
 
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
@@ -311,6 +327,8 @@ public:
     Expression copy_Expression();
     void dump(ostream& stream, int n);
 
+    Symbol infer_type() const override;
+
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
 #endif
@@ -334,6 +352,8 @@ public:
     }
     Expression copy_Expression();
     void dump(ostream& stream, int n);
+
+    Symbol infer_type() const override;
 
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
@@ -359,6 +379,8 @@ public:
     Expression copy_Expression();
     void dump(ostream& stream, int n);
 
+    Symbol infer_type() const override;
+
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
 #endif
@@ -380,6 +402,8 @@ public:
     }
     Expression copy_Expression();
     void dump(ostream& stream, int n);
+
+    Symbol infer_type() const override;
 
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
@@ -403,6 +427,8 @@ public:
     Expression copy_Expression();
     void dump(ostream& stream, int n);
 
+    Symbol infer_type() const override;
+
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
 #endif
@@ -420,6 +446,8 @@ public:
     block_class(Expressions a1) { body = a1; }
     Expression copy_Expression();
     void dump(ostream& stream, int n);
+
+    Symbol infer_type() const override;
 
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
@@ -447,6 +475,8 @@ public:
     Expression copy_Expression();
     void dump(ostream& stream, int n);
 
+    Symbol infer_type() const override;
+
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
 #endif
@@ -468,6 +498,8 @@ public:
     }
     Expression copy_Expression();
     void dump(ostream& stream, int n);
+
+    Symbol infer_type() const override;
 
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
@@ -491,6 +523,8 @@ public:
     Expression copy_Expression();
     void dump(ostream& stream, int n);
 
+    Symbol infer_type() const override;
+
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
 #endif
@@ -512,6 +546,8 @@ public:
     }
     Expression copy_Expression();
     void dump(ostream& stream, int n);
+
+    Symbol infer_type() const override;
 
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
@@ -535,6 +571,8 @@ public:
     Expression copy_Expression();
     void dump(ostream& stream, int n);
 
+    Symbol infer_type() const override;
+
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
 #endif
@@ -552,6 +590,8 @@ public:
     neg_class(Expression a1) { e1 = a1; }
     Expression copy_Expression();
     void dump(ostream& stream, int n);
+
+    Symbol infer_type() const override;
 
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
@@ -575,6 +615,8 @@ public:
     Expression copy_Expression();
     void dump(ostream& stream, int n);
 
+    Symbol infer_type() const override;
+
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
 #endif
@@ -596,6 +638,8 @@ public:
     }
     Expression copy_Expression();
     void dump(ostream& stream, int n);
+
+    Symbol infer_type() const override;
 
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
@@ -619,6 +663,8 @@ public:
     Expression copy_Expression();
     void dump(ostream& stream, int n);
 
+    Symbol infer_type() const override;
+
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
 #endif
@@ -636,6 +682,8 @@ public:
     comp_class(Expression a1) { e1 = a1; }
     Expression copy_Expression();
     void dump(ostream& stream, int n);
+
+    Symbol infer_type() const override;
 
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
@@ -655,6 +703,8 @@ public:
     Expression copy_Expression();
     void dump(ostream& stream, int n);
 
+    Symbol infer_type() const override;
+
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
 #endif
@@ -672,6 +722,8 @@ public:
     bool_const_class(Boolean a1) { val = a1; }
     Expression copy_Expression();
     void dump(ostream& stream, int n);
+
+    Symbol infer_type() const override;
 
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
@@ -691,6 +743,8 @@ public:
     Expression copy_Expression();
     void dump(ostream& stream, int n);
 
+    Symbol infer_type() const override;
+
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
 #endif
@@ -708,6 +762,8 @@ public:
     new__class(Symbol a1) { type_name = a1; }
     Expression copy_Expression();
     void dump(ostream& stream, int n);
+
+    Symbol infer_type() const override;
 
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
@@ -727,6 +783,8 @@ public:
     Expression copy_Expression();
     void dump(ostream& stream, int n);
 
+    Symbol infer_type() const override;
+
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
 #endif
@@ -742,6 +800,8 @@ public:
     no_expr_class() {}
     Expression copy_Expression();
     void dump(ostream& stream, int n);
+
+    Symbol infer_type() const override;
 
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
@@ -760,6 +820,8 @@ public:
     object_class(Symbol a1) { name = a1; }
     Expression copy_Expression();
     void dump(ostream& stream, int n);
+
+    Symbol infer_type() const override;
 
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS
