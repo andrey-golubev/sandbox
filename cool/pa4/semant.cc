@@ -11,6 +11,8 @@
 #include <utility>
 #include <vector>
 
+#include <cassert>
+
 extern int semant_debug;
 extern char* curr_filename;
 
@@ -38,7 +40,7 @@ static std::map<Symbol, std::vector<Symbol>>
 static ATable* O = nullptr;
 static MTable* M = nullptr;
 static ClassTable* C = nullptr;
-static Class_* curr_Class = nullptr;
+static Class_* this_Class = nullptr;
 
 //
 // Initializing the predefined symbols.
@@ -421,7 +423,7 @@ void check_types(ClassTable& classtable) {
 
         O = &attrib_tables.at(name);
         M = &method_tables.at(name);
-        curr_Class = &cls;
+        this_Class = &cls;
 
         Features features = cls->get_features();
         if (features == nil_Features()) {  // empty class is not an error?
@@ -438,7 +440,8 @@ void check_types(ClassTable& classtable) {
     log() << "----------------\n";
 }
 
-std::ostream& this_class_error() { return C->semant_error(*curr_Class); }
+Symbol lowest_common_ancestor(Symbol a, Symbol b);
+std::ostream& this_class_error() { return C->semant_error(*this_Class); }
 
 bool method_class::check_type() const { return true; }
 bool attr_class::check_type() const { return true; }
@@ -468,7 +471,31 @@ Symbol static_dispatch_class::infer_type() const { return No_type; }
 
 Symbol dispatch_class::infer_type() const { return No_type; }
 
-Symbol cond_class::infer_type() const { return No_type; }
+Symbol cond_class::infer_type() const {
+    if (pred->infer_type() != Bool) {
+        this_class_error() << "[IF] predicate is not of type Bool" << std::endl;
+        return No_type;
+    }
+    auto then_type = then_exp->infer_type();
+    if (then_type == SELF_TYPE) {
+        then_type = (*this_Class)->get_name();
+    }
+    auto else_type = else_exp->infer_type();
+    if (else_type == SELF_TYPE) {
+        (*this_Class)->get_name();
+    }
+
+    if (then_type == else_type) {
+        return then_type;
+    }
+
+    const auto common_type = lowest_common_ancestor(then_type, else_type);
+    if (common_type == No_type) {
+        this_class_error() << "[IF] then and else expressions do not have LCA" << std::endl;
+    }
+
+    return common_type;
+}
 
 Symbol loop_class::infer_type() const {
     const auto pred_type = pred->infer_type();
@@ -556,7 +583,7 @@ Symbol eq_class::infer_type() const { return No_type; }
 Symbol leq_class::infer_type() const {
     std::array<Symbol, 2> types{e1->infer_type(), e2->infer_type()};
     if (!std::all_of(types.begin(), types.end(), [](Symbol t) { return t == Int; })) {
-        this_class_error() << "[COMPARISON: <] not all operands are of type Int" << std::endl;
+        this_class_error() << "[COMPARISON: <=] not all operands are of type Int" << std::endl;
         return No_type;
     }
     return Bool;
@@ -573,7 +600,7 @@ Symbol comp_class::infer_type() const {
 
 Symbol new__class::infer_type() const {
     if (type_name == SELF_TYPE) {
-        return (*curr_Class)->get_name();
+        return (*this_Class)->get_name();
     }
     return type_name;
 }
@@ -586,3 +613,19 @@ Symbol isvoid_class::infer_type() const {
 Symbol no_expr_class::infer_type() const { return No_type; }
 
 Symbol object_class::infer_type() const { return O->lookup(name); }
+
+Symbol lowest_common_ancestor(Symbol a, Symbol b) {
+    const auto& chain_a = inheritance_graph.find(a)->second;
+    const auto& chain_b = inheritance_graph.find(b)->second;
+
+    Symbol type = No_type;
+    for (auto ia = chain_a.rbegin(), ib = chain_b.rbegin();
+         ia != chain_a.rend() && ib != chain_b.rend(); ++ia, ++ib) {
+        if ((*ia) != (*ib)) {
+            break;
+        }
+        type = *ia;
+    }
+
+    return type;
+}
