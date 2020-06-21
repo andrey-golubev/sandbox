@@ -197,7 +197,7 @@ public:
     Symbol get_name() override { return name; }
     bool is_method() override { return true; }
     bool check_type() const override;
-    Symbol infer_type() const override { return return_type; }
+    Symbol infer_type() const override;
 
 #ifdef Feature_SHARED_EXTRAS
     Feature_SHARED_EXTRAS
@@ -225,7 +225,9 @@ public:
 
     Symbol get_name() override { return name; }
     bool check_type() const override;
-    Symbol infer_type() const override { return type_decl; }
+    Symbol infer_type() const override;
+    Symbol infer_type_no_init(Symbol id_type) const;
+
 
 #ifdef Feature_SHARED_EXTRAS
     Feature_SHARED_EXTRAS
@@ -476,6 +478,7 @@ public:
     void dump(ostream& stream, int n);
 
     Symbol infer_type() const override;
+    Symbol infer_type_no_init(Symbol id_type) const;
 
 #ifdef Expression_SHARED_EXTRAS
     Expression_SHARED_EXTRAS

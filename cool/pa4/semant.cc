@@ -373,6 +373,7 @@ template<typename Table> struct TableScope {
             throw std::runtime_error("Internal error: passed table is nullptr");
         }
         tbl = *t;
+        tbl.enterscope();
     }
     TableScope(Table& t) : tbl(t) { tbl.enterscope(); }
     ~TableScope() { tbl.exitscope(); }
@@ -441,6 +442,8 @@ void check_types(ClassTable& classtable) {
 }
 
 Symbol lowest_common_ancestor(Symbol a, Symbol b);
+Symbol correct_self(Symbol type);
+bool is_subtype(Symbol subtype, Symbol type);
 std::ostream& this_class_error() { return C->semant_error(*this_Class); }
 
 bool method_class::check_type() const { return true; }
@@ -452,14 +455,17 @@ Symbol bool_const_class::infer_type() const { return Bool; }
 Symbol string_const_class::infer_type() const { return Str; }
 
 // rest of expressions:
+Symbol method_class::infer_type() const { return No_type; }
+Symbol attr_class::infer_type() const { return No_type; }
+Symbol attr_class::infer_type_no_init(Symbol id_type) const { return No_type; }
+
 Symbol branch_class::infer_type() const { return No_type; }
 
 Symbol assign_class::infer_type() const {
     Symbol type = O->lookup(name);
     Symbol expr_type = expr->infer_type();
 
-    const auto& chain = inheritance_graph.at(expr_type);
-    if (std::find(chain.begin(), chain.end(), type) == chain.end()) {
+    if (!is_subtype(expr_type, type)) {
         this_class_error() << "[ASSIGN] Expr type is not subclass of Id type" << std::endl;
         return No_type;
     }
@@ -476,15 +482,8 @@ Symbol cond_class::infer_type() const {
         this_class_error() << "[IF] predicate is not of type Bool" << std::endl;
         return No_type;
     }
-    auto then_type = then_exp->infer_type();
-    if (then_type == SELF_TYPE) {
-        then_type = (*this_Class)->get_name();
-    }
-    auto else_type = else_exp->infer_type();
-    if (else_type == SELF_TYPE) {
-        (*this_Class)->get_name();
-    }
-
+    const auto then_type = correct_self(then_exp->infer_type());
+    const auto else_type = correct_self(else_exp->infer_type());
     if (then_type == else_type) {
         return then_type;
     }
@@ -522,7 +521,25 @@ Symbol block_class::infer_type() const {
     return type;
 }
 
-Symbol let_class::infer_type() const { return No_type; }
+Symbol let_class::infer_type() const {
+    const auto init_type = init->infer_type();
+    const auto id_type = correct_self(type_decl);
+    const auto body_type = infer_type_no_init(id_type);
+    if (init_type != No_type) {  // init statement exists
+        if (!is_subtype(init_type, id_type)) {
+            this_class_error() << "[LET] Init expr type is not a subtype of identifier type"
+                               << std::endl;
+            return No_type;
+        }
+    }
+    return body_type;
+}
+
+Symbol let_class::infer_type_no_init(Symbol id_type) const {
+    AScope scope(O);
+    O->addid(identifier, id_type);
+    return body->infer_type();
+}
 
 Symbol plus_class::infer_type() const {
     std::array<Symbol, 2> types{e1->infer_type(), e2->infer_type()};
@@ -578,7 +595,22 @@ Symbol lt_class::infer_type() const {
     return Bool;
 }
 
-Symbol eq_class::infer_type() const { return No_type; }
+Symbol eq_class::infer_type() const {
+    const auto type1 = e1->infer_type();
+    const auto type2 = e2->infer_type();
+
+    const std::array<Symbol, 3> basic_types = {Int, Str, Bool};
+    const auto it1 = std::find(basic_types.begin(), basic_types.end(), type1);
+    const auto it2 = std::find(basic_types.begin(), basic_types.end(), type2);
+    if (it1 != it2) {
+        this_class_error() << "[COMPARISON: ==] incomparable types of left-hand-side and "
+                              "right-hand-side expressions"
+                           << std::endl;
+        return No_type;
+    }
+
+    return Bool;
+}
 
 Symbol leq_class::infer_type() const {
     std::array<Symbol, 2> types{e1->infer_type(), e2->infer_type()};
@@ -598,12 +630,7 @@ Symbol comp_class::infer_type() const {
     return Bool;
 }
 
-Symbol new__class::infer_type() const {
-    if (type_name == SELF_TYPE) {
-        return (*this_Class)->get_name();
-    }
-    return type_name;
-}
+Symbol new__class::infer_type() const { return correct_self(type_name); }
 
 Symbol isvoid_class::infer_type() const {
     (void)e1->infer_type();  // TODO: is this good enough?
@@ -628,4 +655,16 @@ Symbol lowest_common_ancestor(Symbol a, Symbol b) {
     }
 
     return type;
+}
+
+Symbol correct_self(Symbol type) {
+    if (type == SELF_TYPE) {
+        return (*this_Class)->get_name();
+    }
+    return type;
+}
+
+bool is_subtype(Symbol subtype, Symbol type) {
+    const auto& chain = inheritance_graph.at(subtype);
+    return std::find(chain.begin(), chain.end(), type) != chain.end();
 }
