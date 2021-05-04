@@ -11,3 +11,5 @@ add_executable(shortest_path shortest_path.cpp)
 target_include_directories(shortest_path PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_executable(bfs_shortest_reach bfs_shortest_reach.cpp)
+
+add_executable(trie trie.cpp)
