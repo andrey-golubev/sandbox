@@ -13,3 +13,5 @@ target_include_directories(shortest_path PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 add_executable(bfs_shortest_reach bfs_shortest_reach.cpp)
 
 add_executable(trie trie.cpp)
+
+add_executable(running_median running_median.cpp)
