@@ -93,6 +93,15 @@ public:
         return false;
     }
 
+    void mirror() { BinaryTree::mirror(m_root); }
+
+    void double_tree() { BinaryTree::double_tree(m_root); }
+
+    friend bool operator==(const BinaryTree& x, const BinaryTree& y) {
+        return BinaryTree::are_equal(x.m_root, y.m_root);
+    }
+    friend bool operator!=(const BinaryTree& x, const BinaryTree& y) { return !(x == y); }
+
 private:
     Node* m_root = nullptr;
 
@@ -180,6 +189,34 @@ private:
         collect_paths(root->left, paths, current_path);
         collect_paths(root->right, paths, current_path);
     }
+
+    static void mirror(Node* root) {
+        if (!root)
+            return;
+        using std::swap;
+        swap(root->left, root->right);
+        mirror(root->left);
+        mirror(root->right);
+    }
+
+    static void double_tree(Node* root) {
+        if (!root)
+            return;
+        double_tree(root->left);
+        double_tree(root->right);
+        Node* copy = new Node{root->data};
+        copy->left = std::exchange(root->left, copy);
+    }
+
+    static bool are_equal(Node* x, Node* y) {
+        if (!x || !y) {
+            if (!x && !y) {
+                return true;
+            }
+            return false;
+        }
+        return x->data == y->data && are_equal(x->left, y->left) && are_equal(x->right, y->right);
+    }
 };
 
 int main() {
@@ -218,6 +255,32 @@ int main() {
         TEST_RET_ON_ERROR("btree_paths_contain_sum",
                           BinaryTree<int>({4, 2, 5, 1, 3}).paths_contain_sum(9) &&
                               !BinaryTree<int>({4, 2, 5, 1, 3}).paths_contain_sum(1));
+    }
+    {
+        BinaryTree<int> actual({4, 2, 5, 1, 3});
+
+        std::stringstream ss;
+        actual.print(ss, " ");
+
+        actual.mirror();
+        actual.print(ss, " ");
+
+        // NB: because we print twice, it's ascending then descending
+        TEST_RET_ON_ERROR("btree_mirror", ss.str() == std::string("1 2 3 4 5 5 4 3 2 1 "));
+    }
+    {
+        BinaryTree<int> actual({2, 1, 3});
+        actual.double_tree();
+
+        std::stringstream ss;
+        actual.print(ss);
+        TEST_RET_ON_ERROR("btree_mirror", ss.str() == std::string("1 1 2 2 3 3 "));
+    }
+    {
+        BinaryTree<int> x({2, 1, 3});
+        TEST_RET_ON_ERROR("btree_equality", x == x && x != BinaryTree<int>({3, 2, 1}) &&
+                                                BinaryTree<int>() == BinaryTree<int>() &&
+                                                x != BinaryTree<int>({8, 9, 1, 4}));
     }
     return 0;
 }
