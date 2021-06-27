@@ -3,6 +3,7 @@
 // some random stuff from the internet and not only
 
 #include <algorithm>
+#include <numeric>
 #include <string>
 
 namespace string_utils {
@@ -22,3 +23,11 @@ static inline void trim(std::string& s) {
     rtrim(s);
 }
 }  // namespace string_utils
+
+namespace iota_utils {
+template<typename I, typename T, typename URBG>
+static inline void random_iota(I first, I last, T&& value, URBG&& g) {
+    std::iota(first, last, std::forward<T>(value));
+    std::shuffle(first, last, std::forward<URBG>(g));
+}
+}  // namespace iota_utils

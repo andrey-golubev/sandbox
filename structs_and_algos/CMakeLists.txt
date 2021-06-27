@@ -11,3 +11,9 @@ add_executable(${TARGET1}
     binary_tree.cpp
 )
 target_include_directories(${TARGET1} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+set(TARGET2 "quicksort")
+add_executable(${TARGET2}
+    quicksort.cpp
+)
+target_include_directories(${TARGET2} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
