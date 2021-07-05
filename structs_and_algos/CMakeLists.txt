@@ -17,3 +17,9 @@ add_executable(${TARGET2}
     quicksort.cpp
 )
 target_include_directories(${TARGET2} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+set(TARGET3 "mergesort")
+add_executable(${TARGET3}
+    mergesort.cpp
+)
+target_include_directories(${TARGET3} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
